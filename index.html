@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Run Fit Life</title>
+  <meta name="theme-color" content="#111827">
+  <style>
+    :root {
+      --bg: #f3f4f6;
+      --card: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --primary: #111827;
+      --danger: #b91c1c;
+    }
+    body.dark {
+      --bg: #0f172a;
+      --card: #020617;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --primary: #e5e7eb;
+    }
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; margin:0; background: var(--bg); color: var(--text); }
+    header { background: var(--primary); color: var(--bg); padding: 1rem; text-align:center; }
+    main { padding:1rem; max-width:900px; margin:auto; }
+    h2 { margin-top:2rem; }
+    form, .card { background: var(--card); padding:1rem; border-radius:14px; box-shadow:0 4px 10px rgba(0,0,0,.15); }
+    label { display:block; margin-top:.75rem; font-weight:600; }
+    input, textarea, button, select { width:100%; padding:.6rem; margin-top:.25rem; border-radius:8px; border:1px solid #374151; font-size:1rem; background:var(--bg); color: var(--text); }
+    button { background: var(--primary); color: var(--bg); border:none; margin-top:1rem; font-weight:600; }
+    button.secondary { background:#6b7280; }
+    button.danger { background: var(--danger); }
+    button.small { font-size:.8rem; padding:.3rem .5rem; }
+    button:hover { opacity:.9; cursor:pointer; }
+    .entry { background: var(--card); margin-top:1rem; padding:.75rem; border-radius:12px; box-shadow:0 2px 6px rgba(0,0,0,.15); display:flex; justify-content:space-between; align-items:center; gap:.5rem; }
+    .entry small { color: var(--muted); }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
+    .actions { display:flex; gap:.25rem; }
+    footer { text-align:center; font-size:.85rem; color: var(--muted); margin:2rem 0; }
+    canvas { width:100%; max-height:280px; }
+  </style>
+</head>
+<body>
+<header>
+<h1>🏋️ Run Fit Life</h1>
+<p>Registra, analiza y mejora tus entrenamientos</p>
+<button class="small" onclick="toggleDark()">🌙 / ☀️</button>
+</header>
+<main>
+<form id="workoutForm">
+<h2>➕ Nuevo entrenamiento</h2>
+<label>Día de rutina</label>
+<select id="day" required>
+  <option value="Día 1 - Empuje">Día 1 - Empuje</option>
+  <option value="Día 2 - Tirón">Día 2 - Tirón</option>
+  <option value="Día 3 - Piernas y Glúteo">Día 3 - Piernas y Glúteo</option>
+</select>
+<label>Ejercicio</label>
+<select id="exercise" required></select>
+<div class="row">
+  <div>
+    <label>Peso (kg)</label>
+    <input type="number" id="weight" step="0.5" required />
+  </div>
+  <div>
+    <label>Series</label>
+    <input type="number" id="sets" required />
+  </div>
+</div>
+<label>Repeticiones</label>
+<input type="number" id="reps" required />
+<label>Notas</label>
+<textarea id="notes" rows="2"></textarea>
+<button type="submit">Guardar</button>
+</form>
+<div class="card">
+<h2>🔍 Filtrar por ejercicio</h2>
+<select id="filter"></select>
+</div>
+<div class="card">
+<h2>📈 Progreso (peso)</h2>
+<canvas id="chart"></canvas>
+<p id="volume"></p>
+</div>
+<h2>📋 Historial</h2>
+<div id="log"></div>
+<div class="card">
+<h2>📦 Gestión de datos</h2>
+<button class="secondary" onclick="exportCSV()">Exportar a CSV</button>
+<button class="danger" onclick="clearAll()">Borrar todo</button>
+</div>
+</main>
+<footer>Run Fit Life · PWA gratuita</footer>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const exercisesByDay = {
+  'Día 1 - Empuje':['Press banca','Press banca inclinado','Press banca declinado','Aperturas en máquina','Press militar','Elevaciones frontales','Elevaciones laterales con mancuernas','Elevaciones laterales con polea','Extensión de tríceps en polea','Extensión de tríceps tras nuca en polea','Tríceps katana','Fondos'],
+  'Día 2 - Tirón':['Remo con barra','Jalón al pecho agarre neutro','Remo con polea','Pullover en polea','Face pull en polea','Aperturas posteriores con mancuernas','Reverse fly en máquina','Curl de bíceps en banco Scott','Curl de bíceps codos atrás en banco','Curl martillo'],
+  'Día 3 - Piernas y Glúteo':['Zancada con saco','Peso muerto','Sentadillas en multipower','Extensión de cuadríceps','Prensa de pierna','Femoral unilateral','Máquina de abductor','Máquina de aductor','Hip thrust','Glúteo en máquina','Gemelos']
+};
+
+const form = document.getElementById('workoutForm');
+const daySelect = document.getElementById('day');
+const exerciseSelect = document.getElementById('exercise');
+const log = document.getElementById('log');
+const filter = document.getElementById('filter');
+const ctx = document.getElementById('chart');
+const volumeEl = document.getElementById('volume');
+const STORAGE_KEY='gym_workouts';
+let chart;
+
+function getData(){return JSON.parse(localStorage.getItem(STORAGE_KEY))||[];}
+function saveData(data){localStorage.setItem(STORAGE_KEY,JSON.stringify(data));}
+
+function updateExerciseOptions(){
+  const day=daySelect.value;
+  exerciseSelect.innerHTML='';
+  exercisesByDay[day].forEach(ex=>{
+    const opt=document.createElement('option');
+    opt.value=ex;
+    opt.textContent=ex;
+    exerciseSelect.appendChild(opt);
+  });
+}
+
+daySelect.addEventListener('change',updateExerciseOptions);
+
+function loadFilter(data){
+  const exercises=[...new Set(data.map(w=>w.exercise))];
+  filter.innerHTML='<option value="">Todos</option>'+exercises.map(e=>`<option>${e}</option>`).join('');
+}
+
+function renderLog(data){
+  log.innerHTML='';
+  data.slice().reverse().forEach((w,i)=>{
+    const vol=w.weight*w.sets*w.reps;
+    const div=document.createElement('div');
+    div.className='entry';
+    div.innerHTML=`<div><strong>${w.day} - ${w.exercise}</strong><br>${w.weight} kg · ${w.sets}x${w.reps} · Vol: ${vol}<br><small>${w.date||''}${w.notes? ' · '+w.notes:''}</small></div><div class="actions"><button class="danger small" onclick="deleteOne(${i})">🗑️</button></div>`;
+    log.appendChild(div);
+  });
+}
+
+function renderChart(data){
+  if(chart)chart.destroy();
+  if(!data.length)return;
+  chart=new Chart(ctx,{type:'line',data:{labels:data.map(w=>w.date||''),datasets:[{label:'Peso (kg)',data:data.map(w=>w.weight)}]}});
+  const totalVol=data.reduce((a,w)=>a+w.weight*w.sets*w.reps,0);
+  volumeEl.textContent=`Volumen total: ${totalVol}`;
+}
+
+function refresh(){
+  const data=getData();
+  const filtered=filter.value?data.filter(w=>w.exercise===filter.value):data;
+  loadFilter(data);
+  renderLog(filtered);
+  renderChart(filtered);
+}
+
+form.addEventListener('submit',e=>{
+  e.preventDefault();
+  const data=getData();
+  const today=new Date().toLocaleDateString();
+  data.push({day:daySelect.value,exercise:exerciseSelect.value,weight:Number(document.getElementById('weight').value),sets:Number(document.getElementById('sets').value),reps:Number(document.getElementById('reps').value),notes:document.getElementById('notes').value,date:today});
+  saveData(data);
+  form.reset();
+  updateExerciseOptions();
+  refresh();
+});
+
+filter.addEventListener('change',refresh);
+
+function exportCSV(){
+  const data=getData();
+  let csv='Día,Fecha,Ejercicio,Peso,Series,Reps,Notas\n';
+  data.forEach(w=>csv+=`${w.day},${w.date},${w.exercise},${w.weight},${w.sets},${w.reps},${w.notes||''}\n`);
+  const blob=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='run_fit_life.csv';a.click();
+}
+
+function clearAll(){if(confirm('¿Borrar todos los entrenamientos?')){localStorage.removeItem(STORAGE_KEY);refresh();}}
+function deleteOne(i){const data=getData();data.splice(i,1);saveData(data);refresh();}
+
+function toggleDark(){document.body.classList.toggle('dark');localStorage.setItem('dark',document.body.classList.contains('dark'));}
+if(localStorage.getItem('dark')==='true')document.body.classList.add('dark');
+
+updateExerciseOptions();
+refresh();
+</script>
+</body>
+</html>
